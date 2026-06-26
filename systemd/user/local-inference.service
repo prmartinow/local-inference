@@ -15,6 +15,11 @@ Environment=QWEN_TEXT_EMBEDDING_MODEL_DIR=%h/.local/share/local-inference/models
 Environment=QWEN_RERANKER_MODEL_DIR=%h/.local/share/local-inference/models/Qwen3-Reranker-8B
 Environment=QWEN_VL_EMBEDDING_MODEL_DIR=%h/.local/share/local-inference/models/Qwen3-VL-Embedding-8B
 Environment=QWEN_VL_GENERATIVE_MODEL_DIR=%h/.local/share/local-inference/models/Qwen3-VL-8B-Instruct
+Environment=LOCAL_INFERENCE_PADDLEOCR_HOME=%h/.local/share/local-inference/paddleocr
+Environment=LOCAL_INFERENCE_PADDLE_PDX_CACHE_HOME=%h/.local/share/local-inference/paddleocr/paddlex-cache
+Environment=PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT=0
+Environment=LOCAL_INFERENCE_PADDLEOCR_CONCURRENCY=1
+Environment=LOCAL_INFERENCE_PADDLEOCR_QUEUE_LIMIT=8
 Environment=QWEN_INFERENCE_DEVICE=cpu
 Environment=QWEN_INFERENCE_BATCH_SIZE=1
 Environment=QWEN_INFERENCE_MAX_LENGTH=8192

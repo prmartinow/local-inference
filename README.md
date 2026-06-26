@@ -12,13 +12,16 @@ The repo contains the model API code extracted from the Web OSINT local Qwen ser
 - Generative VL chat: `Qwen/Qwen3-VL-8B-Instruct`
 - reCAPTCHA tile classification: `DannyLuna/recaptcha-classification-57k`
 - Text OCR and slider-gap matching: `ddddocr` bundled ONNX
+- Media/document OCR and layout text extraction: PaddleOCR 3.7 / PaddleX 3.7 / PaddlePaddle 3.3
 
 The helper lanes are part of the model-service runtime, not separate client
 tools. `classify_recaptcha` uses a YOLOv8n ONNX artifact fetched from
 `DannyLuna/recaptcha-classification-57k`; `ocr` and `slide_gap` use ddddocr
 models bundled inside the Python wheel. The service venv therefore needs
 `ultralytics`, `onnxruntime`, `opencv-python-headless`, and `ddddocr` in
-addition to the transformer stack.
+addition to the transformer stack. Media/document OCR uses PaddleOCR,
+PaddleX, and PaddlePaddle inside this same model-serving boundary; application
+workers call `POST /media/ocr` instead of installing PaddleOCR themselves.
 
 ## API
 
@@ -34,6 +37,7 @@ POST /rerank
 POST /v1/chat/completions
 POST /classify_recaptcha
 POST /ocr
+POST /media/ocr
 POST /slide_gap
 ```
 

@@ -12,6 +12,7 @@
 | Generative VL chat | `Qwen/Qwen3-VL-8B-Instruct` | `models/Qwen3-VL-8B-Instruct` |
 | reCAPTCHA tile classifier | `DannyLuna/recaptcha-classification-57k` | `models/recaptcha-yolov8n/recaptcha_classification_57k.onnx` |
 | OCR / slider gap | `ddddocr` bundled ONNX | Python wheel cache |
+| Media/document OCR | PaddleOCR 3.7 / PaddleX 3.7 / PaddlePaddle 3.3 | `paddleocr/` cache under `LOCAL_INFERENCE_DATA_ROOT` |
 
 The service reads model paths from `QWEN_*_MODEL_DIR` environment variables. `LOCAL_INFERENCE_DATA_ROOT` defaults to `data` when running directly from the repo; the systemd unit defaults to `%h/.local/share/local-inference`.
 
@@ -29,6 +30,11 @@ filesystem-backed helper artifact is the reCAPTCHA ONNX file; ddddocr's ONNX
 models are bundled in the wheel and become visible only through loaded-model
 state and route behavior, not as `model_path_exists` entries.
 
+PaddleOCR is model-serving runtime too. Local inference owns the PaddleOCR,
+PaddleX, and PaddlePaddle install, model/cache directories, CPU policy, startup
+self-test, and `/media/ocr` route. Web OSINT media workers call this route and
+must not install or load PaddleOCR themselves.
+
 ## API
 
 Default bind: `127.0.0.1:18200`.
@@ -43,6 +49,7 @@ POST /rerank
 POST /v1/chat/completions
 POST /classify_recaptcha
 POST /ocr
+POST /media/ocr
 POST /slide_gap
 ```
 
@@ -68,6 +75,7 @@ Small helper lanes remain timeout-bounded because they are expected to be fast:
 ```text
 reCAPTCHA classifier: concurrency 2, queue 8, timeout 60s
 OCR:                  concurrency 2, queue 8, timeout 60s
+Media OCR:            concurrency 1, queue 8, no queue timeout
 slide gap:            concurrency 2, queue 8, timeout 60s
 ```
 

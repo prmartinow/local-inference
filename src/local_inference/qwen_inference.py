@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,19 @@ def env_first(*names: str, default: str) -> str:
 
 
 DATA_ROOT = Path(env_first("LOCAL_INFERENCE_DATA_ROOT", "WEB_OSINT_DATA_ROOT", default="data"))
+PADDLEOCR_HOME = Path(
+    env_first("LOCAL_INFERENCE_PADDLEOCR_HOME", "PADDLEOCR_HOME", default=str(DATA_ROOT / "paddleocr"))
+)
+PADDLE_PDX_CACHE_HOME = Path(
+    env_first(
+        "LOCAL_INFERENCE_PADDLE_PDX_CACHE_HOME",
+        "PADDLE_PDX_CACHE_HOME",
+        default=str(PADDLEOCR_HOME / "paddlex-cache"),
+    )
+)
+os.environ.setdefault("PADDLEOCR_HOME", str(PADDLEOCR_HOME))
+os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(PADDLE_PDX_CACHE_HOME))
+os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
 TEXT_MODEL_DIR = Path(os.environ.get("QWEN_TEXT_EMBEDDING_MODEL_DIR", DATA_ROOT / "models/Qwen3-Embedding-8B"))
 RERANKER_MODEL_DIR = Path(os.environ.get("QWEN_RERANKER_MODEL_DIR", DATA_ROOT / "models/Qwen3-Reranker-8B"))
 VL_MODEL_DIR = Path(os.environ.get("QWEN_VL_EMBEDDING_MODEL_DIR", DATA_ROOT / "models/Qwen3-VL-Embedding-8B"))
@@ -107,6 +121,9 @@ OCR_QUEUE_TIMEOUT = env_float("QWEN_OCR_QUEUE_TIMEOUT_SECONDS", 60)
 SLIDE_CONCURRENCY = env_int("QWEN_SLIDE_CONCURRENCY", 2)
 SLIDE_QUEUE_LIMIT = env_int("QWEN_SLIDE_QUEUE_LIMIT", 8)
 SLIDE_QUEUE_TIMEOUT = env_float("QWEN_SLIDE_QUEUE_TIMEOUT_SECONDS", 60)
+PADDLEOCR_CONCURRENCY = env_int_any(("LOCAL_INFERENCE_PADDLEOCR_CONCURRENCY", "PADDLEOCR_CONCURRENCY"), 1)
+PADDLEOCR_QUEUE_LIMIT = env_int_any(("LOCAL_INFERENCE_PADDLEOCR_QUEUE_LIMIT", "PADDLEOCR_QUEUE_LIMIT"), 8)
+PADDLEOCR_LANG = os.environ.get("LOCAL_INFERENCE_PADDLEOCR_LANG", os.environ.get("MEDIA_OCR_LANG", "en"))
 
 EMBED_MAX_INPUT_CHARS = env_int("QWEN_EMBED_MAX_INPUT_CHARS", 12000)
 RERANK_MAX_QUERY_CHARS = env_int("QWEN_RERANK_MAX_QUERY_CHARS", 1500)
@@ -172,6 +189,11 @@ class ClassifyRecaptchaRequest(BaseModel):
 
 class OcrRequest(BaseModel):
     image_path: str
+
+
+class PaddleOcrRequest(BaseModel):
+    image_path: str
+    lang: str | None = None
 
 
 class SlideGapRequest(BaseModel):
@@ -428,6 +450,29 @@ class ModelRegistry:
             )
             return bundle
 
+    def get_paddleocr(self, lang: str):
+        # PaddleOCR/PaddleX/PaddlePaddle are heavyweight model-serving runtime.
+        # Cache one loaded instance per language selector.
+        model_key = f"paddleocr:{lang}"
+        with self._lock:
+            item = self._models.get(model_key)
+            if item is not None:
+                return item.model
+            from paddleocr import PaddleOCR
+
+            kwargs = {"lang": lang}
+            with suppress(TypeError):
+                model = PaddleOCR(use_textline_orientation=True, **kwargs)
+                self._models[model_key] = LoadedModel(name=model_key, loaded_at=time.time(), model=model)
+                return model
+            with suppress(TypeError):
+                model = PaddleOCR(use_angle_cls=True, **kwargs)
+                self._models[model_key] = LoadedModel(name=model_key, loaded_at=time.time(), model=model)
+                return model
+            model = PaddleOCR(**kwargs)
+            self._models[model_key] = LoadedModel(name=model_key, loaded_at=time.time(), model=model)
+            return model
+
 
 registry = ModelRegistry()
 metrics = InferenceMetrics()
@@ -441,6 +486,7 @@ guardrails = {
     "recaptcha": Guardrail("recaptcha", RECAPTCHA_CONCURRENCY, RECAPTCHA_QUEUE_LIMIT, RECAPTCHA_QUEUE_TIMEOUT),
     "ocr": Guardrail("ocr", OCR_CONCURRENCY, OCR_QUEUE_LIMIT, OCR_QUEUE_TIMEOUT),
     "slide": Guardrail("slide", SLIDE_CONCURRENCY, SLIDE_QUEUE_LIMIT, SLIDE_QUEUE_TIMEOUT),
+    "paddleocr": Guardrail("paddleocr", PADDLEOCR_CONCURRENCY, PADDLEOCR_QUEUE_LIMIT, None),
 }
 app = FastAPI(title="Local Inference API", version="0.1.0")
 
@@ -488,6 +534,19 @@ def json_dumps_compact(value: Any) -> str:
     import json
 
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if hasattr(value, "tolist"):
+        with suppress(Exception):
+            return value.tolist()
+    return value
 
 
 def validate_embedding_inputs(inputs: list[str | dict[str, Any]]) -> None:
@@ -542,6 +601,104 @@ def _to_python_vectors(vectors: Any) -> list[list[float]]:
     return arr.tolist()
 
 
+def parse_paddle_result(result: Any) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+
+    def add(text: Any, score: Any = None, box: Any = None) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        try:
+            confidence = float(score) if score is not None else 0.0
+        except (TypeError, ValueError):
+            confidence = 0.0
+        blocks.append({"text": clean, "confidence": confidence, "box": json_safe(box)})
+
+    def walk(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, dict):
+            texts = value.get("rec_texts") or value.get("texts")
+            scores = value.get("rec_scores") or value.get("scores") or []
+            boxes = value.get("dt_polys") or value.get("rec_boxes") or value.get("boxes") or []
+            if isinstance(texts, list):
+                for idx, text in enumerate(texts):
+                    add(text, scores[idx] if idx < len(scores) else None, boxes[idx] if idx < len(boxes) else None)
+                return
+            for item in value.values():
+                walk(item)
+            return
+        if isinstance(value, (list, tuple)):
+            if (
+                len(value) >= 2
+                and isinstance(value[1], (list, tuple))
+                and len(value[1]) >= 2
+                and isinstance(value[1][0], str)
+            ):
+                add(value[1][0], value[1][1], value[0])
+                return
+            for item in value:
+                walk(item)
+
+    walk(result)
+    return blocks
+
+
+def package_version(package: str) -> str:
+    try:
+        import importlib.metadata as md
+
+        return md.version(package)
+    except Exception:
+        return ""
+
+
+def paddleocr_version() -> str:
+    return package_version("paddleocr")
+
+
+def paddleocr_runtime_info() -> dict[str, str]:
+    return {
+        "paddleocr_version": paddleocr_version(),
+        "paddlepaddle_version": package_version("paddlepaddle"),
+        "paddlex_version": package_version("paddlex"),
+        "python_version": sys.version.split()[0],
+        "paddleocr_home": str(PADDLEOCR_HOME),
+        "paddle_pdx_enable_mkldnn_bydefault": os.environ.get("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", ""),
+        "paddle_pdx_cache_home": os.environ.get("PADDLE_PDX_CACHE_HOME", ""),
+    }
+
+
+def run_paddleocr(path: Path, lang: str) -> dict[str, Any]:
+    model = registry.get_paddleocr(lang)
+    started = time.time()
+    if hasattr(model, "predict"):
+        result = model.predict(str(path))
+    else:
+        result = model.ocr(str(path), cls=True)
+    elapsed_ms = round((time.time() - started) * 1000, 2)
+    blocks = parse_paddle_result(result)
+    text = "\n".join(str(block["text"]) for block in blocks)
+    confidences = [float(block.get("confidence") or 0.0) for block in blocks]
+    mean_confidence = float(sum(confidences) / len(confidences)) if confidences else 0.0
+    min_confidence = float(min(confidences)) if confidences else 0.0
+    return {
+        "model": "paddleocr",
+        "lang": lang,
+        "text": text,
+        "blocks": blocks,
+        "engine": "paddleocr",
+        "engine_module": type(model).__module__,
+        "engine_version": paddleocr_version(),
+        "runtime": paddleocr_runtime_info(),
+        "elapsed_ms": elapsed_ms,
+        "text_chars": len(text),
+        "block_count": len(blocks),
+        "mean_confidence": mean_confidence,
+        "min_confidence": min_confidence,
+    }
+
+
 def run_with_guard(
     operation: str,
     model: str,
@@ -587,6 +744,8 @@ def healthz() -> dict[str, Any]:
             "vl": str(VL_MODEL_DIR),
             "vl_generative": str(VL_GENERATIVE_MODEL_DIR),
             "recaptcha_classifier": str(RECAPTCHA_MODEL_PATH),
+            "paddleocr_home": str(PADDLEOCR_HOME),
+            "paddle_pdx_cache_home": str(PADDLE_PDX_CACHE_HOME),
         },
         "model_path_exists": {
             "text": TEXT_MODEL_DIR.exists(),
@@ -594,7 +753,10 @@ def healthz() -> dict[str, Any]:
             "vl": VL_MODEL_DIR.exists(),
             "vl_generative": VL_GENERATIVE_MODEL_DIR.exists(),
             "recaptcha_classifier": RECAPTCHA_MODEL_PATH.exists(),
+            "paddleocr_home": PADDLEOCR_HOME.exists(),
+            "paddle_pdx_cache_home": PADDLE_PDX_CACHE_HOME.exists(),
         },
+        "paddleocr_runtime": paddleocr_runtime_info(),
         "loaded": registry.loaded(),
         "guardrails": {name: guard.snapshot() for name, guard in guardrails.items()},
         "metrics": metrics.snapshot(),
@@ -681,6 +843,27 @@ def warmup(request: WarmupRequest, http_request: Request) -> dict[str, Any]:
 
             run_with_guard("slide", "ddddocr-slide", caller_from(http_request), 8, 1, 0, do_slide)
             warmed.append("slide")
+        elif selector in {"paddleocr", "media-ocr", "layout-ocr"}:
+            def do_paddleocr():
+                from PIL import Image, ImageDraw, ImageFont
+
+                probe = DATA_ROOT / "tmp" / "local_inference_paddleocr_warmup.png"
+                probe.parent.mkdir(parents=True, exist_ok=True)
+                image = Image.new("RGB", (1200, 260), "white")
+                draw = ImageDraw.Draw(image)
+                try:
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+                except Exception:
+                    font = ImageFont.load_default()
+                draw.text((40, 88), "SELFTESTALPHA123", fill="black", font=font)
+                image.save(probe)
+                result = run_paddleocr(probe, PADDLEOCR_LANG)
+                normalized = "".join(ch for ch in result["text"].upper() if ch.isalnum())
+                if "TESTALPHA123" not in normalized:
+                    raise RuntimeError(f"PaddleOCR warmup self-test failed: {result['text'][:200]!r}")
+
+            run_with_guard("paddleocr", "paddleocr", caller_from(http_request), 16, 1, 0, do_paddleocr)
+            warmed.append("paddleocr")
         else:
             raise HTTPException(status_code=400, detail=f"unknown warmup model: {name}")
     return {"ok": True, "warmed": warmed, "loaded": registry.loaded()}
@@ -933,6 +1116,29 @@ def ocr(request: OcrRequest, http_request: Request) -> dict[str, Any]:
         1,
         0,
         run_ocr,
+    )
+
+
+@app.post("/media/ocr")
+def media_ocr(request: PaddleOcrRequest, http_request: Request) -> dict[str, Any]:
+    p = Path(request.image_path)
+    if not p.is_absolute():
+        raise HTTPException(status_code=400, detail="image_path must be an absolute server-side path")
+    if not p.exists():
+        raise HTTPException(status_code=400, detail=f"image_path does not exist: {request.image_path}")
+    lang = (request.lang or PADDLEOCR_LANG or "en").strip() or "en"
+
+    def run_media_ocr() -> dict[str, Any]:
+        return run_paddleocr(p, lang)
+
+    return run_with_guard(
+        "paddleocr",
+        "paddleocr",
+        caller_from(http_request),
+        32,
+        1,
+        0,
+        run_media_ocr,
     )
 
 

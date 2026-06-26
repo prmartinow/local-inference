@@ -27,5 +27,10 @@ ultralytics==8.4.75
 onnxruntime==1.27.0
 opencv-python-headless==4.13.0.92
 
+# Media/document OCR serving
+paddlepaddle==3.3.1
+paddlex==3.7.1
+paddleocr==3.7.0
+
 # Redpanda consumer (used by the embedding worker that shares this venv)
 confluent-kafka==2.14.2

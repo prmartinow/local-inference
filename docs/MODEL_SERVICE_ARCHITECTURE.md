@@ -13,7 +13,7 @@ model runtime services
   expose health, metrics, active/waiting state, and model inventory
 
 local-inference API
-  stable HTTP surface for embedding, rerank, VL, OCR, and helper routes
+  stable HTTP surface for embedding, rerank, VL, PaddleOCR media OCR, and helper routes
   owns per-operation guardrails and observability
 
 client services
@@ -32,6 +32,7 @@ The first `local-inference` version is a single FastAPI process with lazy loadin
 - Qwen reranker.
 - Qwen VL embedding.
 - Qwen VL generative chat.
+- PaddleOCR media/document OCR.
 - Small specialized helper models for CAPTCHA/OCR routes.
 
 This keeps the current working behavior easy to operate while establishing the correct ownership boundary. Split heavyweight model families into separate runtime processes only when memory, fault isolation, scheduling, or deployment pressure justifies it.
@@ -46,6 +47,8 @@ This keeps the current working behavior easy to operate while establishing the c
 - Host-specific paths, tokens, and model caches live in env files or ignored data directories, not in Git.
 - Downloader scripts, Hugging Face cache setup, model-root paths, and
   candidate/evaluation model manifests live here rather than in client repos.
+- PaddleOCR/PaddleX/PaddlePaddle installs and caches also live here rather than
+  inside Web OSINT media workers.
 
 ## Migration Notes
 
