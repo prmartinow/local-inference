@@ -16,7 +16,7 @@ pydantic==2.13.4
 sentence-transformers==5.6.0
 transformers==5.12.1
 pillow==12.2.0
-numpy==2.4.4
+numpy==2.3.5
 
 # Specialized CAPTCHA solvers
 # - ddddocr: text OCR + slider gap detection (ships bundled ONNX in the wheel)
