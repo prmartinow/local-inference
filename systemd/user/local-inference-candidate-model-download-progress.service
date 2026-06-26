@@ -1,0 +1,20 @@
+[Unit]
+Description=Local Inference candidate model download progress log
+Documentation=file:%h/dev/prmartinow/local-inference/docs/LOCAL_INFERENCE.md
+After=local-inference-candidate-model-downloads.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/prmartinow/local-inference
+EnvironmentFile=-%h/.config/local-inference/local-inference.env
+Environment=LOCAL_INFERENCE_DATA_ROOT=%h/.local/share/local-inference
+Environment=LOCAL_INFERENCE_CANDIDATE_MODELS_DIR=%h/.local/share/local-inference/models/candidates
+Environment=LOCAL_INFERENCE_CANDIDATE_MODEL_LOG_DIR=%h/.local/share/local-inference/logs/candidate-model-downloads
+Environment=LOCAL_INFERENCE_DOWNLOAD_PROGRESS_INTERVAL=15
+Environment=LOCAL_INFERENCE_DOWNLOAD_SERVICE=local-inference-candidate-model-downloads.service
+ExecStart=%h/dev/prmartinow/local-inference/scripts/candidate_model_download_progress.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

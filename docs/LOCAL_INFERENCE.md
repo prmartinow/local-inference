@@ -98,6 +98,24 @@ tail -F ~/.local/share/local-inference/logs/model-downloads/latest-progress.log
 
 The progress log reports service state, elapsed time, active model, transfer rates, socket count, per-model directory sizes, and active `.incomplete` file sizes. Hugging Face auth is optional for public models and must come from `HF_TOKEN`, `HF_TOKEN_FILE`, or `LOCAL_INFERENCE_HF_TOKEN_FILE`.
 
+## Candidate Model Downloads
+
+Application repos should not own model download scripts or manifests. Candidate
+and evaluation model downloads are managed by local-inference as separate
+optional units:
+
+```bash
+systemctl --user enable --now local-inference-candidate-model-downloads.service
+systemctl --user enable --now local-inference-candidate-model-download-progress.service
+tail -F ~/.local/share/local-inference/logs/candidate-model-downloads/latest-progress.log
+```
+
+The default manifest is `config/candidate-models.tsv`, and the default target is
+`models/candidates` under `LOCAL_INFERENCE_DATA_ROOT`. Use
+`LOCAL_INFERENCE_CANDIDATE_MODEL_MANIFEST`,
+`LOCAL_INFERENCE_CANDIDATE_MODELS_DIR`, and
+`LOCAL_INFERENCE_CANDIDATE_DOWNLOAD_JOBS` for host-specific overrides.
+
 ## Checks
 
 ```bash

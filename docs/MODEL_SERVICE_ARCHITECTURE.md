@@ -44,6 +44,8 @@ This keeps the current working behavior easy to operate while establishing the c
 - `/metrics` exposes counters and durations by operation, model, and caller.
 - Clients should not retry a slow model request while the model may still be working on it.
 - Host-specific paths, tokens, and model caches live in env files or ignored data directories, not in Git.
+- Downloader scripts, Hugging Face cache setup, model-root paths, and
+  candidate/evaluation model manifests live here rather than in client repos.
 
 ## Migration Notes
 

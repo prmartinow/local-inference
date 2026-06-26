@@ -88,6 +88,18 @@ systemctl --user enable --now local-inference-model-download-progress.service
 
 Auth, if needed, must be supplied through `HF_TOKEN`, `HF_TOKEN_FILE`, or `LOCAL_INFERENCE_HF_TOKEN_FILE` in a local environment file. Do not commit that file.
 
+Candidate and evaluation model downloads also belong here, not in client repos:
+
+```bash
+cp systemd/user/local-inference-candidate-model-downloads.service ~/.config/systemd/user/
+cp systemd/user/local-inference-candidate-model-download-progress.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now local-inference-candidate-model-downloads.service
+systemctl --user enable --now local-inference-candidate-model-download-progress.service
+```
+
+The default candidate manifest is [config/candidate-models.tsv](config/candidate-models.tsv).
+
 ## Development Checks
 
 ```bash
