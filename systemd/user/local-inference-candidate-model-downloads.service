@@ -8,7 +8,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/dev/prmartinow/local-inference
-EnvironmentFile=-%h/.config/local-inference/local-inference.env
 Environment=LOCAL_INFERENCE_DATA_ROOT=%h/.local/share/local-inference
 Environment=LOCAL_INFERENCE_CANDIDATE_MODELS_DIR=%h/.local/share/local-inference/models/candidates
 Environment=LOCAL_INFERENCE_HF_VENV=%h/.local/share/local-inference/.venv-hf
@@ -16,6 +15,7 @@ Environment=LOCAL_INFERENCE_CANDIDATE_MODEL_LOG_DIR=%h/.local/share/local-infere
 Environment=LOCAL_INFERENCE_CANDIDATE_MODEL_MANIFEST=%h/dev/prmartinow/local-inference/config/candidate-models.tsv
 Environment=LOCAL_INFERENCE_CANDIDATE_DOWNLOAD_JOBS=4
 Environment=HF_HUB_VERBOSITY=info
+EnvironmentFile=-%h/.config/local-inference/local-inference.env
 ExecStart=%h/dev/prmartinow/local-inference/scripts/download_candidate_models.sh
 Restart=on-failure
 RestartSec=60

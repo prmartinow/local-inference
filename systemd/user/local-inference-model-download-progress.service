@@ -6,12 +6,12 @@ After=local-inference-model-downloads.service
 [Service]
 Type=simple
 WorkingDirectory=%h/dev/prmartinow/local-inference
-EnvironmentFile=-%h/.config/local-inference/local-inference.env
 Environment=LOCAL_INFERENCE_DATA_ROOT=%h/.local/share/local-inference
 Environment=LOCAL_INFERENCE_MODELS_DIR=%h/.local/share/local-inference/models
 Environment=LOCAL_INFERENCE_MODEL_LOG_DIR=%h/.local/share/local-inference/logs/model-downloads
 Environment=LOCAL_INFERENCE_DOWNLOAD_PROGRESS_INTERVAL=15
 Environment=LOCAL_INFERENCE_DOWNLOAD_SERVICE=local-inference-model-downloads.service
+EnvironmentFile=-%h/.config/local-inference/local-inference.env
 ExecStart=%h/dev/prmartinow/local-inference/scripts/model_download_progress.sh
 Restart=always
 RestartSec=5

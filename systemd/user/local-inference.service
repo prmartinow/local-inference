@@ -7,7 +7,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/dev/prmartinow/local-inference
-EnvironmentFile=-%h/.config/local-inference/local-inference.env
 Environment=LOCAL_INFERENCE_DATA_ROOT=%h/.local/share/local-inference
 Environment=LOCAL_INFERENCE_VENV=%h/.local/share/local-inference/.venv-local-inference
 Environment=LOCAL_INFERENCE_CPU_RESERVED_THREADS=2
@@ -38,6 +37,7 @@ Environment=QWEN_VL_QUEUE_LIMIT=16
 Environment=QWEN_CHAT_CONCURRENCY=1
 Environment=QWEN_CHAT_QUEUE_LIMIT=4
 Environment=TOKENIZERS_PARALLELISM=false
+EnvironmentFile=-%h/.config/local-inference/local-inference.env
 ExecStartPre=%h/dev/prmartinow/local-inference/scripts/init_inference_venv.sh
 ExecStart=%h/dev/prmartinow/local-inference/scripts/run_inference_service.sh
 Restart=on-failure
