@@ -1,0 +1,26 @@
+[Unit]
+Description=Local Inference model downloads
+Documentation=file:%h/dev/prmartinow/local-inference/docs/LOCAL_INFERENCE.md
+Documentation=https://huggingface.co/docs/huggingface_hub/guides/cli
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/prmartinow/local-inference
+EnvironmentFile=-%h/.config/local-inference/local-inference.env
+Environment=LOCAL_INFERENCE_DATA_ROOT=%h/.local/share/local-inference
+Environment=LOCAL_INFERENCE_MODELS_DIR=%h/.local/share/local-inference/models
+Environment=LOCAL_INFERENCE_HF_VENV=%h/.local/share/local-inference/.venv-hf
+Environment=LOCAL_INFERENCE_MODEL_LOG_DIR=%h/.local/share/local-inference/logs/model-downloads
+Environment=LOCAL_INFERENCE_TEXT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B
+Environment=LOCAL_INFERENCE_RERANKER_MODEL=Qwen/Qwen3-Reranker-8B
+Environment=LOCAL_INFERENCE_VL_EMBEDDING_MODEL=Qwen/Qwen3-VL-Embedding-8B
+Environment=LOCAL_INFERENCE_VL_GENERATIVE_MODEL=Qwen/Qwen3-VL-8B-Instruct
+Environment=HF_HUB_VERBOSITY=info
+ExecStart=%h/dev/prmartinow/local-inference/scripts/download_models.sh
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target
