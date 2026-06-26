@@ -15,6 +15,13 @@
 
 The service reads model paths from `QWEN_*_MODEL_DIR` environment variables. `LOCAL_INFERENCE_DATA_ROOT` defaults to `data` when running directly from the repo; the systemd unit defaults to `%h/.local/share/local-inference`.
 
+For RPC deployments, use `/mnt/data/local-inference` as the target data root and
+`/mnt/data/local-inference/models` as the target model root. During migration,
+the older live Web OSINT service may still report model paths under
+`/mnt/data/web-osint-platform/models`; treat `/healthz` as authoritative before
+moving, deleting, or assuming a model root. `ddddocr` is intentionally listed as
+Python wheel cache because it does not use a separate model directory.
+
 ## API
 
 Default bind: `127.0.0.1:18200`.
