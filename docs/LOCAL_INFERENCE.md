@@ -22,6 +22,13 @@ the older live Web OSINT service may still report model paths under
 moving, deleting, or assuming a model root. `ddddocr` is intentionally listed as
 Python wheel cache because it does not use a separate model directory.
 
+The helper model lanes have their own runtime dependencies in the service venv:
+`ultralytics`, `onnxruntime`, and `opencv-python-headless` for the YOLOv8n
+reCAPTCHA classifier, plus `ddddocr` for OCR and slide matching. The
+filesystem-backed helper artifact is the reCAPTCHA ONNX file; ddddocr's ONNX
+models are bundled in the wheel and become visible only through loaded-model
+state and route behavior, not as `model_path_exists` entries.
+
 ## API
 
 Default bind: `127.0.0.1:18200`.
@@ -63,6 +70,12 @@ reCAPTCHA classifier: concurrency 2, queue 8, timeout 60s
 OCR:                  concurrency 2, queue 8, timeout 60s
 slide gap:            concurrency 2, queue 8, timeout 60s
 ```
+
+The Web OSINT Part A2 route smoke checked synthetic fixtures only:
+`/classify_recaptcha` synthetic traffic-light classification at 90.6% in about
+302 ms, `/ocr` in about 20 ms, and `/slide_gap` correct offset in about 81 ms.
+Do not treat these numbers as production SLAs or as broad CAPTCHA benchmark
+coverage.
 
 ## Install
 

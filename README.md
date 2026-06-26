@@ -13,6 +13,13 @@ The repo contains the model API code extracted from the Web OSINT local Qwen ser
 - reCAPTCHA tile classification: `DannyLuna/recaptcha-classification-57k`
 - Text OCR and slider-gap matching: `ddddocr` bundled ONNX
 
+The helper lanes are part of the model-service runtime, not separate client
+tools. `classify_recaptcha` uses a YOLOv8n ONNX artifact fetched from
+`DannyLuna/recaptcha-classification-57k`; `ocr` and `slide_gap` use ddddocr
+models bundled inside the Python wheel. The service venv therefore needs
+`ultralytics`, `onnxruntime`, `opencv-python-headless`, and `ddddocr` in
+addition to the transformer stack.
+
 ## API
 
 Default bind: `127.0.0.1:18200`
@@ -43,6 +50,12 @@ deleting any model files.
 
 Mac-side Rebrowser helpers should call the API through an SSH tunnel to
 `127.0.0.1:18200`; they should not copy or load the model weights locally.
+
+The original Web OSINT Part A2 smoke used synthetic fixtures only:
+`/classify_recaptcha` classified a synthetic traffic-light tile at 90.6% in
+about 302 ms, `/ocr` recognized text in about 20 ms, and `/slide_gap` returned
+the correct slider offset in about 81 ms. Treat those as route smoke checks, not
+as production benchmarks.
 
 ## Install
 
