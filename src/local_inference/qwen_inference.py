@@ -287,9 +287,11 @@ class Guardrail:
         self._lock = threading.Lock()
         self._waiting = 0
         self._active = 0
+        self._active_requests: dict[int, dict[str, Any]] = {}
+        self._next_request_id = 0
 
     @contextmanager
-    def slot(self):
+    def slot(self, metadata: dict[str, Any] | None = None):
         queued_at = time.time()
         with self._lock:
             if self._waiting >= self.queue_limit:
@@ -300,10 +302,21 @@ class Guardrail:
         else:
             acquired = self._semaphore.acquire(timeout=self.queue_timeout)
         wait_seconds = time.time() - queued_at
+        request_id = 0
         with self._lock:
             self._waiting -= 1
             if acquired:
                 self._active += 1
+                self._next_request_id += 1
+                request_id = self._next_request_id
+                started_at = time.time()
+                self._active_requests[request_id] = {
+                    "request_id": request_id,
+                    "operation": self.name,
+                    "started_at": started_at,
+                    "started_at_iso": utc_timestamp(started_at),
+                    **json_safe(metadata or {}),
+                }
         if not acquired:
             raise HTTPException(status_code=503, detail=f"{self.name} queue wait timed out")
         try:
@@ -311,16 +324,28 @@ class Guardrail:
         finally:
             with self._lock:
                 self._active -= 1
+                self._active_requests.pop(request_id, None)
             self._semaphore.release()
 
     def snapshot(self) -> dict[str, Any]:
+        now = time.time()
         with self._lock:
+            active_requests = []
+            for request in self._active_requests.values():
+                started_at = float(request.get("started_at") or now)
+                active_requests.append(
+                    {
+                        **request,
+                        "active_for_seconds": round(max(now - started_at, 0.0), 3),
+                    }
+                )
             return {
                 "concurrency": self.concurrency,
                 "queue_limit": self.queue_limit,
                 "queue_timeout_seconds": self.queue_timeout,
                 "waiting": self._waiting,
                 "active": self._active,
+                "active_requests": active_requests,
             }
 
 
@@ -507,10 +532,33 @@ def format_labels(labels: dict[str, Any]) -> str:
     return "{" + ",".join(parts) + "}"
 
 
+def utc_timestamp(value: float | None = None) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value or time.time()))
+
+
 def caller_from(request: Request | None) -> str:
     if request is None:
         return "internal"
     return request.headers.get("x-caller") or request.headers.get("user-agent", "unknown").split(" ", 1)[0][:60]
+
+
+def request_metadata_from_headers(request: Request | None) -> dict[str, str]:
+    if request is None:
+        return {}
+    header_map = {
+        "x-repo-analysis-repo": "repo",
+        "x-repo-analysis-embedding-batch-index": "embedding_batch_index",
+        "x-repo-analysis-batch-docs": "embedding_batch_docs",
+        "x-repo-analysis-processed-docs": "embedding_processed_docs",
+        "x-repo-analysis-total-docs": "embedding_total_docs",
+        "x-repo-analysis-batch-input-chars": "embedding_batch_input_chars",
+    }
+    metadata: dict[str, str] = {}
+    for header, key in header_map.items():
+        value = request.headers.get(header)
+        if value:
+            metadata[key] = value[:240]
+    return metadata
 
 
 def is_batch_embedding_request(request: Request | None) -> bool:
@@ -707,11 +755,21 @@ def run_with_guard(
     batch_size: int,
     candidate_count: int,
     fn,
+    *,
+    metadata: dict[str, Any] | None = None,
 ) -> Any:
     labels = {"operation": operation, "model": model, "caller": caller}
+    request_metadata = {
+        "model": model,
+        "caller": caller,
+        "input_chars": input_chars,
+        "batch_size": batch_size,
+        "candidate_count": candidate_count,
+    }
+    request_metadata.update(metadata or {})
     started = time.time()
     try:
-        with guardrails[operation].slot() as wait_seconds:
+        with guardrails[operation].slot(request_metadata) as wait_seconds:
             metrics.observe("local_inference_queue_wait_seconds", wait_seconds, labels)
             result = fn()
         metrics.inc("local_inference_requests_total", {**labels, "status": "ok"})
@@ -881,6 +939,12 @@ def embed(request: EmbeddingRequest, http_request: Request) -> dict[str, Any]:
         operation = "vl" if operation == "vl" else "query_embed"
     elif operation == "embed" and is_batch_embedding_request(http_request):
         operation = "batch_embed"
+    input_chars = input_char_count(request.inputs)
+    metadata = {
+        **request_metadata_from_headers(http_request),
+        "input_count": len(request.inputs),
+        "requested_model": request.model,
+    }
 
     def run_encode() -> dict[str, Any]:
         kwargs: dict[str, Any] = {
@@ -909,10 +973,11 @@ def embed(request: EmbeddingRequest, http_request: Request) -> dict[str, Any]:
         operation,
         served_name,
         caller_from(http_request),
-        input_char_count(request.inputs),
+        input_chars,
         batch_size,
         0,
         run_encode,
+        metadata=metadata,
     )
 
 
